@@ -1,10 +1,7 @@
 # -*- coding: windows-1251 -*-
-
-
 import os
 import sys
 import time
-
 from logging_engine import start_logger
 import tkinter as tk
 from pydantic import ValidationError

@@ -1,0 +1,5 @@
+venv/*
+.idea/
+conf.json
+IMessageSender.zip
+launch.sh
