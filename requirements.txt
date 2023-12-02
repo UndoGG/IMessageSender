@@ -1,0 +1,6 @@
+pyyaml
+click
+rich
+pydantic
+py-imessage
+pynput
