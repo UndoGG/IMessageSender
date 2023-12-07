@@ -1,4 +1,4 @@
-# -*- coding: windows-1251 -*-
+# -*- coding: utf-8 -*-
 import os
 import sys
 import time
@@ -7,13 +7,14 @@ import tkinter as tk
 from pydantic import ValidationError
 from tkinter import ttk, filedialog, messagebox
 from tkinter import scrolledtext
-from yaml_parser import read_yaml_file
-from models import Settings, SendTime
+import pyperclip
+from models import Settings, SendTime, DelayTime
 import json
 from engine import Engine
+from pynput import keyboard
 import threading
 
-config = read_yaml_file('config.yml')
+config = {'log_level': 'DEBUG'}
 logger = start_logger(config['log_level'])
 
 
@@ -33,10 +34,10 @@ class App:
         self.page_message = tk.Frame(self.notebook)
         self.page_profiles = tk.Frame(self.notebook)
 
-        # Добавление страниц в Notebook
-        self.notebook.add(self.page_main, text="Главная")
-        self.notebook.add(self.page_message, text="Сообщение")
-        self.notebook.add(self.page_profiles, text="Профили")
+        # Р”РѕР±Р°РІР»РµРЅРёРµ СЃС‚СЂР°РЅРёС† РІ Notebook
+        self.notebook.add(self.page_main, text="Р“Р»Р°РІРЅР°СЏ")
+        self.notebook.add(self.page_message, text="РЎРѕРѕР±С‰РµРЅРёРµ")
+        self.notebook.add(self.page_profiles, text="РџСЂРѕС„РёР»Рё")
 
         self.settings = None
 
@@ -49,7 +50,8 @@ class App:
         self.pause_image = None
         self.send_delta_from_entry = None
         self.send_delta_to_entry = None
-        self.delay_entry = None
+        self.delay_from_entry = None
+        self.delay_to_entry = None
         self.messages_counter = None
         self.counter_total = None
         self.pack_main()
@@ -60,8 +62,32 @@ class App:
         self.pack_profiles()
 
         self.notebook.pack(expand=True, fill="both")
+
+        keyboard_listener = keyboard.Listener(on_press=self.on_press)
+        keyboard_listener.start()
+
         thread = threading.Thread(target=self.check_finished)
         thread.start()
+
+    # noinspection PyAttributeOutsideInit
+    def on_press(self, key):
+        ...
+        # self.last_key = str(key)
+        # curr_i = self.notebook.index(self.notebook.select())
+        # try:
+        #     ctrl = any([key == keyboard.Key.ctrl_l, key == keyboard.Key.ctrl_r])
+        #     if str(key) == '\'\\x16\'' or (str(key) == 'v' and ctrl):
+        #         if curr_i == 0:
+        #             self.numbers_entry.insert(tk.END, pyperclip.paste())
+        #         if curr_i == 1:
+        #             self.message_entry.insert(tk.END, pyperclip.paste())
+        #     if str(key) == '\'\\x01\'' or (str(key) == 'a' and ctrl):
+        #         if curr_i == 0:
+        #             self.numbers_entry.tag_add(tk.SEL, "1.0", tk.END)
+        #         if curr_i == 1:
+        #             self.message_entry.tag_add(tk.SEL, "1.0", tk.END)
+        # except AttributeError:
+        #     logger.exception('Exc')
 
     def parse_phone_number(self, phone_number: str) -> None | str:
         phone_number = phone_number.replace(' ', '').replace('+', '').replace('(', '').replace(')', '').replace('-', '')
@@ -103,12 +129,12 @@ class App:
             if len(failed.split('\n')) < 10:
                 failed += number + '\n'
             else:
-                failed += f'И ещё {len(numbers_failed) - len(failed.split("\n"))} номеров...'
+                failed += f'Р РµС‰С‘ {len(numbers_failed) - len(failed.split("\n"))} РЅРѕРјРµСЂРѕРІ...'
                 break
 
-        if len(numbers_failed) > 0:
-            messagebox.showwarning('Предупреждение',
-                                   f'Некоторые номера были пропущены, так-как они не соответствуют правильному формату:\n{failed}')
+        if len([num for num in numbers_failed if num not in ['', ' ', '\n']]) > 0:
+            messagebox.showwarning('РџСЂРµРґСѓРїСЂРµР¶РґРµРЅРёРµ',
+                                   f'РќРµРєРѕС‚РѕСЂС‹Рµ РЅРѕРјРµСЂР° ({len(numbers_failed)} Р±С‹Р»Рё РїСЂРѕРїСѓС‰РµРЅС‹, С‚Р°Рє-РєР°Рє РѕРЅРё РЅРµ СЃРѕРѕС‚РІРµС‚СЃС‚РІСѓСЋС‚ РїСЂР°РІРёР»СЊРЅРѕРјСѓ С„РѕСЂРјР°С‚Сѓ:\n{failed}')
 
         if len(self.unpack_list(numbers)) == 0:
             return
@@ -118,16 +144,23 @@ class App:
         self.count_numbers(None)
 
     def check_finished(self):
-        if int(self.messages_counter.get()) >= int(self.counter_total.get()) and int(self.counter_total.get()) > 0:
-            messagebox.showinfo('Отправка завершена!', 'Все сообщения были отправлены!')
+        if int(self.messages_counter.get()) >= int(self.counter_total.get()) and self.engine is not None:
+            messagebox.showinfo('РћС‚РїСЂР°РІРєР° Р·Р°РІРµСЂС€РµРЅР°!', 'Р’СЃРµ СЃРѕРѕР±С‰РµРЅРёСЏ Р±С‹Р»Рё РѕС‚РїСЂР°РІР»РµРЅС‹!')
             self.stop()
             self.change_counter(0)
         time.sleep(1)
         self.check_finished()
 
     def get_settings(self):
-        return Settings(message=self.message_entry.get("1.0", tk.END),
-                        message_delay=self.delay_entry.get(),
+        if self.send_delta_from_entry.get().replace(' ', '') == '':
+            self.send_delta_from_entry.delete(0, tk.END)
+            self.send_delta_to_entry.delete(0, tk.END)
+
+            self.send_delta_from_entry.insert(0, "0")
+            self.send_delta_to_entry.insert(0, "24")
+        return Settings(messages=[i for i in self.message_entry.get("1.0", tk.END).split('END') if i.replace(' ', '') not in ['', '\n']],
+                        message_delay=DelayTime(from_seconds=self.delay_from_entry.get(),
+                                                to_seconds=self.delay_to_entry.get()),
                         send_time=SendTime(from_hour=int(self.send_delta_from_entry.get()),
                                            to_hour=int(self.send_delta_to_entry.get())),
                         numbers=self.numbers_entry.get("1.0", tk.END).split('\n'))
@@ -147,11 +180,11 @@ class App:
         try:
             self.settings = self.get_settings()
         except ValidationError:
-            messagebox.showerror('Ошибка валидатора',
-                                 'Не удалось валидировать настройки. Проверьте, что указали все параметры')
+            messagebox.showerror('РћС€РёР±РєР° РІР°Р»РёРґР°С‚РѕСЂР°',
+                                 'РќРµ СѓРґР°Р»РѕСЃСЊ РІР°Р»РёРґРёСЂРѕРІР°С‚СЊ РЅР°СЃС‚СЂРѕР№РєРё. РџСЂРѕРІРµСЂСЊС‚Рµ, С‡С‚Рѕ СѓРєР°Р·Р°Р»Рё РІСЃРµ РїР°СЂР°РјРµС‚СЂС‹')
             return
         except ValueError:
-            messagebox.showerror('Ошибка валидации', 'Часы отправки должны быть числами')
+            messagebox.showerror('РћС€РёР±РєР° РІР°Р»РёРґР°С†РёРё', 'Р§Р°СЃС‹ РѕС‚РїСЂР°РІРєРё РґРѕР»Р¶РЅС‹ Р±С‹С‚СЊ С‡РёСЃР»Р°РјРё')
             return
 
         numbers_parsed = []
@@ -166,13 +199,13 @@ class App:
 
             numbers_parsed.append(parsed)
         if len(numbers_parsed) != len(self.settings.numbers):
-            messagebox.showwarning('Предупреждение',
-                                   f'Было пропущено {len(self.settings.numbers) - len(numbers_parsed)} номеров')
+            messagebox.showwarning('РџСЂРµРґСѓРїСЂРµР¶РґРµРЅРёРµ',
+                                   f'Р‘С‹Р»Рѕ РїСЂРѕРїСѓС‰РµРЅРѕ {len(self.settings.numbers) - len(numbers_parsed)} РЅРѕРјРµСЂРѕРІ')
         self.settings.numbers = numbers_parsed
 
         if self.settings.send_time.from_hour > self.settings.send_time.to_hour:
-            messagebox.showerror('Ошибка валидации настроек',
-                                 'Час, до которого нужно отправлять должен быть меньше, чем с которого нужно')
+            messagebox.showerror('РћС€РёР±РєР° РІР°Р»РёРґР°С†РёРё РЅР°СЃС‚СЂРѕРµРє',
+                                 'Р§Р°СЃ, РґРѕ РєРѕС‚РѕСЂРѕРіРѕ РЅСѓР¶РЅРѕ РѕС‚РїСЂР°РІР»СЏС‚СЊ РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ РјРµРЅСЊС€Рµ, С‡РµРј СЃ РєРѕС‚РѕСЂРѕРіРѕ РЅСѓР¶РЅРѕ')
             return
 
         self.settings.numbers = list(set(self.settings.numbers))
@@ -181,8 +214,8 @@ class App:
             self.engine = Engine(self.settings, counter=self.messages_counter)
         except Exception:
             logger.exception('Unable to launch engine')
-            messagebox.showerror('Ошибка запуска движка',
-                                 'Движок не был запущен из-за внутренней ошибки. Свяжитесь с разработчиком и сообщите ошибку из консоли')
+            messagebox.showerror('РћС€РёР±РєР° Р·Р°РїСѓСЃРєР° РґРІРёР¶РєР°',
+                                 'Р”РІРёР¶РѕРє РЅРµ Р±С‹Р» Р·Р°РїСѓС‰РµРЅ РёР·-Р·Р° РІРЅСѓС‚СЂРµРЅРЅРµР№ РѕС€РёР±РєРё. РЎРІСЏР¶РёС‚РµСЃСЊ СЃ СЂР°Р·СЂР°Р±РѕС‚С‡РёРєРѕРј Рё СЃРѕРѕР±С‰РёС‚Рµ РѕС€РёР±РєСѓ РёР· РєРѕРЅСЃРѕР»Рё')
 
         logger.info('[cyan]Launching engine')
         thread = threading.Thread(target=self.engine.launch)
@@ -233,7 +266,7 @@ class App:
 
     def join_root_path(self, *paths):
         if self.check_exe():
-            path = os.path.join(sys.executable, *paths)
+            path = os.path.join(os.path.dirname(sys.executable), *paths)
         else:
             path = os.path.join(os.path.dirname(__file__), *paths)
         return path
@@ -252,7 +285,7 @@ class App:
                 with open(file_path) as file:
                     return file.read()
             except Exception as e:
-                messagebox.showerror('Ошибка открытия файла', f'Файл открыть не удалось. Ошибка: {e}')
+                messagebox.showerror('РћС€РёР±РєР° РѕС‚РєСЂС‹С‚РёСЏ С„Р°Р№Р»Р°', f'Р¤Р°Р№Р» РѕС‚РєСЂС‹С‚СЊ РЅРµ СѓРґР°Р»РѕСЃСЊ. РћС€РёР±РєР°: {e}')
                 return
 
     def export_file(self, filetypes: list[tuple] = None, default_extension: str = '.json') -> str:
@@ -277,41 +310,49 @@ class App:
             profile_json = json.loads(profile_file)
         except Exception:
             logger.exception('Unable to unmarshal JSON')
-            messagebox.showerror('Ошибка импорта', 'Не удалось прочитать JSON файл. Вероятно, он повреждён')
+            messagebox.showerror('РћС€РёР±РєР° РёРјРїРѕСЂС‚Р°', 'РќРµ СѓРґР°Р»РѕСЃСЊ РїСЂРѕС‡РёС‚Р°С‚СЊ JSON С„Р°Р№Р». Р’РµСЂРѕСЏС‚РЅРѕ, РѕРЅ РїРѕРІСЂРµР¶РґС‘РЅ')
             return
         skip_values = False
         try:
             send_time = profile_json['send_time']
+            delay_time = profile_json['message_delay']
             del profile_json['send_time']
+            del profile_json['message_delay']
             self.settings = Settings(**profile_json,
                                      send_time=SendTime(from_hour=send_time['from'],
-                                                        to_hour=send_time['to']))
+                                                        to_hour=send_time['to']),
+                                     message_delay=DelayTime(from_seconds=delay_time['from'],
+                                                             to_seconds=delay_time['to']))
         except ValidationError:
             logger.error('Pydantic Validation error')
             skip_values = True
         except KeyError as e:
             logger.exception('Unable to configure settings from json')
-            messagebox.showerror('Ошибка настройки',
-                                 f'В JSON файле отсутствуют необходимые ключи: {e}. Вероятно, он повреждён')
+            messagebox.showerror('РћС€РёР±РєР° РЅР°СЃС‚СЂРѕР№РєРё',
+                                 f'Р’ JSON С„Р°Р№Р»Рµ РѕС‚СЃСѓС‚СЃС‚РІСѓСЋС‚ РЅРµРѕР±С…РѕРґРёРјС‹Рµ РєР»СЋС‡Рё: {e}. Р’РµСЂРѕСЏС‚РЅРѕ, РѕРЅ РїРѕРІСЂРµР¶РґС‘РЅ')
             return
 
-        self.delay_entry.delete(0, tk.END)
+        self.delay_from_entry.delete(0, tk.END)
+        self.delay_to_entry.delete(0, tk.END)
         self.send_delta_from_entry.delete(0, tk.END)
         self.send_delta_to_entry.delete(0, tk.END)
         self.message_entry.delete("1.0", tk.END)
         self.numbers_entry.delete("1.0", tk.END)
 
         if not skip_values:
-            self.delay_entry.insert(0, str(self.settings.message_delay))
+            self.delay_from_entry.insert(0, str(self.settings.message_delay.from_seconds))
+            self.delay_to_entry.insert(0, str(self.settings.message_delay.to_seconds))
             self.send_delta_from_entry.insert(0, str(self.settings.send_time.from_hour))
             self.send_delta_to_entry.insert(0, str(self.settings.send_time.to_hour))
-            self.message_entry.insert("1.0", str(self.settings.message))
+            self.message_entry.insert("1.0", self.unpack_list([i + 'END' for i in self.settings.messages]))
             self.numbers_entry.insert("1.0",
                                       self.unpack_list([number + '\n' for number in self.settings.numbers],
                                                        do_space=False))
         else:
-            if profile_json['message_delay'] != "":
-                self.delay_entry.insert(0, str(profile_json['message_delay']))
+            if profile_json['message_delay']['from'] != "":
+                self.delay_from_entry.insert(0, str(profile_json['message_delay']['from']))
+            if profile_json['message_delay']['to'] != "":
+                self.delay_to_entry.insert(0, str(profile_json['message_delay']['to']))
             if send_time['from'] != "":
                 self.send_delta_from_entry.insert(0, str(send_time['from']))
             if send_time['to'] != "":
@@ -333,8 +374,12 @@ class App:
     def export_profile(self):
         export_path = self.export_file([("JSON files", "*.json")])
         settings = {
-            "message": self.message_entry.get("1.0", tk.END),
-            "message_delay": self.delay_entry.get(),
+            "messages": [i for i in self.message_entry.get("1.0", tk.END).split('END') if i.replace(' ', '') not in ['', '\n']],
+            "message_delay":
+                {
+                    'from': self.delay_from_entry.get(),
+                    'to': self.delay_to_entry.get()
+                },
             "send_time":
                 {
                     "from": self.send_delta_from_entry.get(),
@@ -346,26 +391,26 @@ class App:
         if export_path:
             with open(export_path, "w+") as file:
                 file.write(json.dumps(settings))
-            messagebox.showinfo('Успешно', 'Конфигурация сохранена')
+            messagebox.showinfo('РЈСЃРїРµС€РЅРѕ', 'РљРѕРЅС„РёРіСѓСЂР°С†РёСЏ СЃРѕС…СЂР°РЅРµРЅР°')
 
     def pack_profiles(self):
-        tk.Label(self.page_profiles, text='Профили', font='Helvetica 15').pack()
+        tk.Label(self.page_profiles, text='РџСЂРѕС„РёР»Рё', font='Helvetica 15').pack()
         tk.Label(self.page_profiles,
-                 text='Вы можете импортировать из файла настройки для быстрой установки в программу, или экспортировать текущие в файл',
+                 text='Р’С‹ РјРѕР¶РµС‚Рµ РёРјРїРѕСЂС‚РёСЂРѕРІР°С‚СЊ РёР· С„Р°Р№Р»Р° РЅР°СЃС‚СЂРѕР№РєРё РґР»СЏ Р±С‹СЃС‚СЂРѕР№ СѓСЃС‚Р°РЅРѕРІРєРё РІ РїСЂРѕРіСЂР°РјРјСѓ, РёР»Рё СЌРєСЃРїРѕСЂС‚РёСЂРѕРІР°С‚СЊ С‚РµРєСѓС‰РёРµ РІ С„Р°Р№Р»',
                  font='Helvetica 13', wraplength=500).pack()
 
-        import_conf = tk.Button(self.page_profiles, text="Импорт конфигурации",
+        import_conf = tk.Button(self.page_profiles, text="РРјРїРѕСЂС‚ РєРѕРЅС„РёРіСѓСЂР°С†РёРё",
                                 command=lambda: self.import_profile(),
                                 background='white', width=20, font='Helvetica 10')
         import_conf.pack(pady=20)
 
-        export_conf = tk.Button(self.page_profiles, text="Экспорт текущей конфигурации",
+        export_conf = tk.Button(self.page_profiles, text="Р­РєСЃРїРѕСЂС‚ С‚РµРєСѓС‰РµР№ РєРѕРЅС„РёРіСѓСЂР°С†РёРё",
                                 command=lambda: self.export_profile(),
                                 background='white', width=30, font='Helvetica 10')
         export_conf.pack(pady=20)
 
     def pack_message(self):
-        tk.Label(self.page_message, text='Сообщение', font='Helvetica 15').pack()
+        tk.Label(self.page_message, text='РЎРѕРѕР±С‰РµРЅРёРµ', font='Helvetica 15').pack()
 
         self.message_entry = scrolledtext.ScrolledText(self.page_message, wrap=tk.WORD,
                                                        highlightbackground="lightblue",
@@ -374,13 +419,21 @@ class App:
                                                        height=18)
         self.message_entry.pack()
 
-        import_message = tk.Button(self.page_message, text="Импорт сообщения", command=lambda: self.import_message(),
+        import_message = tk.Button(self.page_message, text="РРјРїРѕСЂС‚ СЃРѕРѕР±С‰РµРЅРёСЏ", command=lambda: self.import_message(),
                                    background='white', width=20, font='Helvetica 10')
-        import_message.pack(pady=20)
+        import_message.pack()
 
-        tk.Label(self.page_message, text='Заменители', font='Helvetica 15').pack()
-        tk.Label(self.page_message, text='{date} - Дата отправки сообщения', font='Helvetica 10').pack()
-        tk.Label(self.page_message, text='{number} - Номер получателя', font='Helvetica 10').pack()
+        paste = tk.Button(self.page_message, text="Р’СЃС‚Р°РІРєР°", command=lambda: self.paste_message(),
+                          background='white', width=20, font='Helvetica 10')
+        paste.pack()
+
+        clear = tk.Button(self.page_message, text="РћС‡РёСЃС‚РёС‚СЊ", command=lambda: self.message_entry.delete("1.0", tk.END),
+                          background='white', width=20, font='Helvetica 10')
+        clear.pack()
+
+        tk.Label(self.page_message, text='Р—Р°РјРµРЅРёС‚РµР»Рё', font='Helvetica 15').pack()
+        tk.Label(self.page_message, text='{date} - Р”Р°С‚Р° РѕС‚РїСЂР°РІРєРё СЃРѕРѕР±С‰РµРЅРёСЏ', font='Helvetica 10').pack()
+        tk.Label(self.page_message, text='{number} - РќРѕРјРµСЂ РїРѕР»СѓС‡Р°С‚РµР»СЏ', font='Helvetica 10').pack()
 
     def change_counter_total(self, value: int | str):
         self.counter_total.configure(state='normal')
@@ -395,11 +448,20 @@ class App:
         self.messages_counter.configure(state='readonly')
 
     def count_numbers(self, event):
-        content = self.numbers_entry.get("1.0", tk.END)
-        self.change_counter_total(len(list(set([self.parse_phone_number(i) for i in content.split("\n") if i != '']))))
+        content = self.numbers_entry.get("1.0", tk.END).split("\n")
+
+        content = [i for i in content if self.parse_phone_number(i) is not None]
+
+        self.change_counter_total(len(list(set([self.parse_phone_number(i) for i in content if i != '']))))
+
+    def paste_numbers(self):
+        self.numbers_entry.insert(tk.END, pyperclip.paste())
+
+    def paste_message(self):
+        self.message_entry.insert(tk.END, pyperclip.paste())
 
     def pack_main(self):
-        tk.Label(self.page_main, text='Список номеров', font='Helvetica 15').pack()
+        tk.Label(self.page_main, text='РЎРїРёСЃРѕРє РЅРѕРјРµСЂРѕРІ', font='Helvetica 15').pack()
 
         self.numbers_entry = scrolledtext.ScrolledText(self.page_main, wrap=tk.WORD,
                                                        highlightbackground="lightblue",
@@ -408,17 +470,25 @@ class App:
         self.numbers_entry.pack()
         self.numbers_entry.bind("<KeyRelease>", lambda i: self.count_numbers(i))
 
-        import_numbers = tk.Button(self.page_main, text="Импорт номеров", command=lambda: self.import_numbers(),
+        import_numbers = tk.Button(self.page_main, text="РРјРїРѕСЂС‚ РЅРѕРјРµСЂРѕРІ", command=lambda: self.import_numbers(),
                                    background='white', width=20, font='Helvetica 10')
-        import_numbers.pack(pady=20)
+        import_numbers.pack()
 
-        settings_label = tk.Label(self.page_main, text='Настройки отправки', font='Helvetica 15')
+        paste = tk.Button(self.page_main, text="Р’СЃС‚Р°РІРєР°", command=lambda: self.paste_numbers(),
+                          background='white', width=20, font='Helvetica 10')
+        paste.pack()
+
+        clear = tk.Button(self.page_main, text="РћС‡РёСЃС‚РёС‚СЊ", command=lambda: self.numbers_entry.delete("1.0", tk.END),
+                          background='white', width=20, font='Helvetica 10')
+        clear.pack()
+
+        settings_label = tk.Label(self.page_main, text='РќР°СЃС‚СЂРѕР№РєРё РѕС‚РїСЂР°РІРєРё', font='Helvetica 15')
         settings_label.pack(pady=20)
 
         delay_frame = tk.Frame(self.page_main)
         delay_frame.pack()
 
-        delay_label = tk.Label(delay_frame, text='Задержка отправки:', font='Helvetica 12')
+        delay_label = tk.Label(delay_frame, text='Р—Р°РґРµСЂР¶РєР° РѕС‚РїСЂР°РІРєРё РѕС‚:', font='Helvetica 12')
         delay_label.pack(side='left')
 
         def validate_entry(why):
@@ -448,8 +518,8 @@ class App:
                 logger.error('Integers length greater than 2 is not allowed')
                 return False
 
-            if int(why) > 23:
-                logger.error('Integers higher than 23 is not allowed. Use 0 if you want to set 24 hour')
+            if int(why) > 24:
+                logger.error('Integers higher than 24 is not allowed')
                 return False
 
             return True
@@ -457,24 +527,28 @@ class App:
         validate_cmd = (self.page_main.register(validate_entry), '%P')
         validate_hours_cmd = (self.page_main.register(validate_hours_entry), '%P')
 
-        self.delay_entry = tk.Entry(delay_frame, width=6, justify='center', validate='key',
-                                    validatecommand=validate_cmd)
-        self.delay_entry.pack(side='left', padx=10)
+        self.delay_from_entry = tk.Entry(delay_frame, width=6, justify='center', validate='key',
+                                         validatecommand=validate_cmd)
+        self.delay_from_entry.pack(side='left', padx=10)
 
-        after_entry_label = tk.Label(delay_frame, text='секунд', font='Helvetica 12')
+        after_entry_label = tk.Label(delay_frame, text='РґРѕ', font='Helvetica 12')
         after_entry_label.pack(side='left')
+
+        self.delay_to_entry = tk.Entry(delay_frame, width=6, justify='center', validate='key',
+                                       validatecommand=validate_cmd)
+        self.delay_to_entry.pack(side='left', padx=10)
 
         hours_frame = tk.Frame(self.page_main)
         hours_frame.pack()
 
-        send_delta_label = tk.Label(hours_frame, text='Отправлять в часы с:', font='Helvetica 12')
+        send_delta_label = tk.Label(hours_frame, text='РћС‚РїСЂР°РІР»СЏС‚СЊ РІ С‡Р°СЃС‹ СЃ:', font='Helvetica 12')
         send_delta_label.pack(side='left')
 
         self.send_delta_from_entry = tk.Entry(hours_frame, width=4, justify='center', validate='key',
                                               validatecommand=validate_hours_cmd)
         self.send_delta_from_entry.pack(side='left', padx=10)
 
-        after_from_label = tk.Label(hours_frame, text='по', font='Helvetica 12')
+        after_from_label = tk.Label(hours_frame, text='РїРѕ', font='Helvetica 12')
         after_from_label.pack(side='left')
 
         self.send_delta_to_entry = tk.Entry(hours_frame, width=4, justify='center', validate='key',
@@ -482,7 +556,7 @@ class App:
         self.send_delta_to_entry.pack(side='left', padx=10)
 
         # Sent counter
-        counter_label = tk.Label(self.page_main, text='Отправлено:', font='Helvetica 14')
+        counter_label = tk.Label(self.page_main, text='РћС‚РїСЂР°РІР»РµРЅРѕ:', font='Helvetica 14')
         counter_label.pack(pady=10)
 
         counter_frame = tk.Frame(self.page_main)
@@ -492,7 +566,7 @@ class App:
                                          state='readonly')
         self.messages_counter.pack(side='left', padx=10)
 
-        after_counter_label = tk.Label(counter_frame, text='из', font='Helvetica 13')
+        after_counter_label = tk.Label(counter_frame, text='РёР·', font='Helvetica 13')
         after_counter_label.pack(side='left')
 
         self.counter_total = tk.Entry(counter_frame, width=4, justify='center', validate='key', font='Helvetica 14', )
@@ -508,12 +582,12 @@ class App:
         self.stop_image = self.get_asset('stop.png')
         self.pause_image = self.get_asset('pause.png')
 
-        self.start_button = tk.Button(action_frame, image=self.start_image, relief='flat', text="Старт",
+        self.start_button = tk.Button(action_frame, image=self.start_image, relief='flat', text="РЎС‚Р°СЂС‚",
                                       command=lambda: self.start(), width=170, height=55, font='Helvetica 10')
-        self.pause_button = tk.Button(action_frame, image=self.pause_image, relief='flat', text="Стоп",
+        self.pause_button = tk.Button(action_frame, image=self.pause_image, relief='flat', text="РЎС‚РѕРї",
                                       command=lambda: self.pause(), width=170, height=55, font='Helvetica 10',
                                       state='disabled')
-        self.stop_button = tk.Button(action_frame, image=self.stop_image, relief='flat', text="Стоп",
+        self.stop_button = tk.Button(action_frame, image=self.stop_image, relief='flat', text="РЎС‚РѕРї",
                                      command=lambda: self.stop(), width=170, height=55, font='Helvetica 10',
                                      state='disabled')
         self.start_button.pack(side='left', padx=30)

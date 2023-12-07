@@ -8,8 +8,13 @@ class SendTime(BaseModel):
     to_hour: int
 
 
+class DelayTime(BaseModel):
+    from_seconds: int
+    to_seconds: int
+
+
 class Settings(BaseModel):
-    message: str
-    message_delay: int
+    messages: List[str]
+    message_delay: DelayTime
     send_time: SendTime
     numbers: List[str]

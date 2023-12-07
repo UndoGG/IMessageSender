@@ -4,3 +4,4 @@ rich
 pydantic
 py-imessage
 pynput
+pyperclip

@@ -1,0 +1,1 @@
+{"messages": ["This is message number one!\n", "\nThis is second message variation\n", "\nHello! I am third message variation!\n"], "message_delay": {"from": "1", "to": "9"}, "send_time": {"from": "0", "to": "24"}, "numbers": ["+123 456 567 87", ""]}
