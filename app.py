@@ -14,6 +14,7 @@ from engine import Engine
 from pynput import keyboard
 import threading
 
+sys.setrecursionlimit(10_000_000)
 config = {'log_level': 'DEBUG'}
 logger = start_logger(config['log_level'])
 
@@ -147,7 +148,6 @@ class App:
         if int(self.messages_counter.get()) >= int(self.counter_total.get()) and self.engine is not None:
             messagebox.showinfo('Отправка завершена!', 'Все сообщения были отправлены!')
             self.stop()
-            self.change_counter(0)
         time.sleep(1)
         self.check_finished()
 
@@ -158,7 +158,8 @@ class App:
 
             self.send_delta_from_entry.insert(0, "0")
             self.send_delta_to_entry.insert(0, "24")
-        return Settings(messages=[i for i in self.message_entry.get("1.0", tk.END).split('END') if i.replace(' ', '') not in ['', '\n']],
+        return Settings(messages=[i for i in self.message_entry.get("1.0", tk.END).split('END') if
+                                  i.replace(' ', '') not in ['', '\n']],
                         message_delay=DelayTime(from_seconds=self.delay_from_entry.get(),
                                                 to_seconds=self.delay_to_entry.get()),
                         send_time=SendTime(from_hour=int(self.send_delta_from_entry.get()),
@@ -176,6 +177,8 @@ class App:
 
             self.stop_button: tk.Button
             self.stop_button.configure(state='normal')
+
+            self.engine.settings = self.get_settings()
             return
         try:
             self.settings = self.get_settings()
@@ -349,16 +352,17 @@ class App:
                                       self.unpack_list([number + '\n' for number in self.settings.numbers],
                                                        do_space=False))
         else:
-            if profile_json['message_delay']['from'] != "":
-                self.delay_from_entry.insert(0, str(profile_json['message_delay']['from']))
-            if profile_json['message_delay']['to'] != "":
-                self.delay_to_entry.insert(0, str(profile_json['message_delay']['to']))
+            if delay_time['from'] != "":
+                self.delay_from_entry.insert(0, str(delay_time['from']))
+            if delay_time['to'] != "":
+                self.delay_to_entry.insert(0, str(delay_time['to']))
             if send_time['from'] != "":
                 self.send_delta_from_entry.insert(0, str(send_time['from']))
             if send_time['to'] != "":
                 self.send_delta_to_entry.insert(0, str(send_time['to']))
-            if len([i for i in profile_json['message'].split('\n') if i.replace(' ', '') != '']) > 0:
-                self.message_entry.insert("1.0", str(profile_json['message']))
+            if len(profile_json['messages']) > 0:
+                self.message_entry.insert("1.0", self.unpack_list([i + 'END' for i in profile_json['messages']],
+                                                                  do_space=False))
             if len([num for num in profile_json['numbers'] if len(num) in [11, 12, 13]]) > 0:
                 self.numbers_entry.insert("1.0",
                                           self.unpack_list([number + '\n' for number in
@@ -374,7 +378,8 @@ class App:
     def export_profile(self):
         export_path = self.export_file([("JSON files", "*.json")])
         settings = {
-            "messages": [i for i in self.message_entry.get("1.0", tk.END).split('END') if i.replace(' ', '') not in ['', '\n']],
+            "messages": [i for i in self.message_entry.get("1.0", tk.END).split('END') if
+                         i.replace(' ', '') not in ['', '\n']],
             "message_delay":
                 {
                     'from': self.delay_from_entry.get(),
@@ -409,6 +414,22 @@ class App:
                                 background='white', width=30, font='Helvetica 10')
         export_conf.pack(pady=20)
 
+    def delete_history(self):
+        if messagebox.askyesno('Очистка истории', 'Вы уверены, что хотите удалить файл истории? Все номера, на которые ранее были отправлены сообщения будут утеряны.'):
+            try:
+                os.remove('history.json')
+            except FileNotFoundError:
+                messagebox.showerror('Ошибка удаления', 'Файла истории и так не существует. Ну или кто-то плохо искал \\_(@_@)_/')
+                return
+            except PermissionError:
+                messagebox.showerror('Ошибка удаления', 'Процесс занят или нет прав доступа')
+                return
+            except Exception:
+                logger.exception('Unable to delete history due to unhandled exception')
+                messagebox.showerror('Ошибка удаления', 'Удаление не удалось. Проверьте консоль для просмотра ошибки')
+                return
+
+            messagebox.showinfo('Успешно', 'История удалена')
     def pack_message(self):
         tk.Label(self.page_message, text='Сообщение', font='Helvetica 15').pack()
 
@@ -481,6 +502,10 @@ class App:
         clear = tk.Button(self.page_main, text="Очистить", command=lambda: self.numbers_entry.delete("1.0", tk.END),
                           background='white', width=20, font='Helvetica 10')
         clear.pack()
+
+        clear_history = tk.Button(self.page_main, text="Удалить историю", command=lambda: self.delete_history(),
+                                  background='white', width=20, font='Helvetica 10')
+        clear_history.pack()
 
         settings_label = tk.Label(self.page_main, text='Настройки отправки', font='Helvetica 15')
         settings_label.pack(pady=20)
@@ -602,7 +627,7 @@ if __name__ == "__main__":
     root.attributes('-fullscreen', False)
 
     window_width = 750
-    window_height = 650
+    window_height = 700
     screen_width = root.winfo_screenwidth()
     screen_height = root.winfo_screenheight()
 

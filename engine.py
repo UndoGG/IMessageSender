@@ -1,14 +1,16 @@
 # -*- coding: utf-8 -*-
+import json
+
 from models import Settings
 from logging_engine import get_logger
 import time
 from datetime import datetime
-import subprocess
+import sys
 import tkinter as tk
 import random
 
-
 logger = get_logger()
+sys.setrecursionlimit(10_000_000)
 
 
 class Engine:
@@ -23,6 +25,18 @@ class Engine:
         self._paused = False
         self._stop = False
 
+    def save_number(self, number):
+        current_history = None
+        try:
+            with open('history.json') as history:
+                current_history = json.loads(history.read())
+        except FileNotFoundError:
+            current_history = {'history': []}
+
+        current_history['history'].append(number)
+        with open('history.json', mode='w+') as history:
+            json.dump(current_history, history)
+
     def validate(self, number):
         if self._paused:
             logger.info('[bold yellow]Paused')
@@ -33,8 +47,19 @@ class Engine:
                     check_paused()
                 else:
                     logger.info('[bold green]Resumed')
+
             check_paused()
             return True
+
+        try:
+            with open('history.json') as history:
+                history = json.loads(history.read())['history']
+        except FileNotFoundError:
+            history = []
+
+        if str(number) in [str(i) for i in history]:
+            logger.error(f'Skipped [cyan]{number}[/cyan]: Already sent to this number before')
+            return False
 
         if datetime.now().hour not in range(self.settings.send_time.from_hour, self.settings.send_time.to_hour + 1):
             logger.error(f'Skipped [cyan]{number}[/cyan]: Out of send time')
@@ -53,7 +78,7 @@ class Engine:
                     send "{content}" to targetBuddy
                 end tell
             """
-            subprocess.run(['osascript', '-e', applescript])
+            # subprocess.run(['osascript', '-e', applescript])
             logger.info(f'[bold green]Message sent to {phone}')
         except Exception:
             logger.exception('Unable to send message')
@@ -68,7 +93,7 @@ class Engine:
                     send "{content}" to targetBuddy
                 end tell
             """
-            subprocess.run(['osascript', '-e', applescript])
+            # subprocess.run(['osascript', '-e', applescript])
             logger.info(f'[bold green]SMS sent to {phone}')
         except Exception:
             logger.exception('Unable to send SMS')
@@ -128,6 +153,7 @@ class Engine:
                 if not self.validate(number):
                     time.sleep(1)
                     validate()
+
             validate()
 
             rnd_index = random.randint(0, len(self.settings.messages) - 1)
@@ -135,10 +161,30 @@ class Engine:
 
             logger.info(f"[cyan]Selected random message with index: {rnd_index}")
 
-            self.send(number, message)
+            if message.startswith('\n'):
+                message = message[1:]
+            if message.endswith('\n'):
+                message = message[:-1]
+            if message.startswith('\n'):
+                message = message[1:]
+            if message.endswith('\n'):
+                message = message[:-1]
+            message = message.lstrip()
 
             message = self.parse_message(message)
+            if message.startswith('\n'):
+                message = message[1:]
+            if message.endswith('\n'):
+                message = message[:-1]
+            if message.startswith('\n'):
+                message = message[1:]
+            if message.endswith('\n'):
+                message = message[:-1]
+            message = message.lstrip()
+
+            self.send(number, message)
             print(message)
+            self.save_number(number)
 
             if self._stop:
                 break
